@@ -17,7 +17,6 @@ This project implements the FastAPI + MongoDB attendance API described in the co
 python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-python sample_seed.py
 uvicorn app.main:app --port 8000 --reload
 ```
 
