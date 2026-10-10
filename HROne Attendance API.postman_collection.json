@@ -1,0 +1,395 @@
+{
+  "info": {
+    "_postman_id": "7a509390-f66c-4b19-9c93-3749e1c71511",
+    "name": "HROne Attendance API - Contract and Edge Cases",
+    "description": "Sequential contract checks plus parallel race checks for the HROne assignment. Set baseUrl if needed (default http://localhost:8000). First request creates a uniquely named cohort in MongoDB. To rerun, clear the collection variable runId before running the collection. MongoDB must be available to the API.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "if (!pm.collectionVariables.get('runId')) {",
+          "  const suffix = String(Date.now()).slice(-6);",
+          "  pm.collectionVariables.set('runId', suffix);",
+          "  pm.collectionVariables.set('dept', 'PMQA' + suffix);",
+          "  pm.collectionVariables.set('leaderDept', 'PMQL' + suffix);",
+          "  const names = ['standard', 'boundary', 'overnight', 'ot29', 'ot30', 'halfExact', 'halfBelow', 'rank1', 'rank2a', 'rank2b', 'rank4', 'noLogs', 'joiner', 'future', 'raceIn', 'raceOut', 'racePatch'];",
+          "  names.forEach((name, index) => pm.collectionVariables.set('emp_' + name, 'EMP' + String((Number(suffix) + index) % 1000000).padStart(6, '0')));",
+          "}",
+          "const times = {",
+          "  grace: '2026-08-03T04:10:00.900Z', late: '2026-08-03T04:10:01Z', start: '2026-08-03T04:00:00Z',",
+          "  end: '2026-08-03T13:00:00Z', overnightIn: '2026-08-04T00:29:00Z', overnightOut: '2026-08-04T01:10:00Z',",
+          "  ot29In: '2026-08-05T16:30:00Z', ot29Out: '2026-08-06T00:59:59Z', ot30In: '2026-08-06T16:30:00Z', ot30Out: '2026-08-07T01:00:00Z',",
+          "  halfExactOut: '2026-08-03T08:29:42Z', halfBelowOut: '2026-08-03T08:29:41Z', weekendIn: '2026-08-15T05:00:00Z', weekendOut: '2026-08-15T13:00:00Z',",
+          "  rank60: '2026-08-10T05:00:00Z', rank45: '2026-08-10T04:45:00Z', rank10: '2026-08-10T04:10:01Z', joinerIn: '2026-08-17T04:00:00Z', joinerOut: '2026-08-17T13:00:00Z',",
+          "  raceIn: '2026-08-20T04:00:00Z', raceOut: '2026-08-20T13:00:00Z', racePatchIn: '2026-08-21T04:00:00Z', over24: '2026-08-04T04:10:02Z'",
+          "};",
+          "Object.entries(times).forEach(([key, value]) => pm.collectionVariables.set('ts_' + key, String(Date.parse(value))));"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": { "type": "text/javascript", "exec": ["pm.test('HTTP request completed', function () { pm.expect(pm.response.code).to.be.within(200, 599); });"] }
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8000" },
+    { "key": "runId", "value": "" },
+    { "key": "dept", "value": "" },
+    { "key": "leaderDept", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "01 - Readiness and fixtures",
+      "item": [
+        {
+          "name": "Create isolated employee cohort (first request)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const base = pm.collectionVariables.get('baseUrl');",
+                  "const dept = pm.collectionVariables.get('dept');",
+                  "const leaderDept = pm.collectionVariables.get('leaderDept');",
+                  "const code = name => pm.collectionVariables.get('emp_' + name);",
+                  "const employees = [",
+                  "  {emp_code:code('standard'),name:'PM Standard',email:'standard'+pm.collectionVariables.get('runId')+'@example.com',department:dept,shift_start:'09:30',shift_end:'18:30',joined_on:'2026-08-01'},",
+                  "  {emp_code:code('boundary'),name:'PM Late Boundary',email:'boundary'+pm.collectionVariables.get('runId')+'@example.com',department:dept,shift_start:'09:30',shift_end:'18:30',joined_on:'2026-08-01'},",
+                  "  {emp_code:code('overnight'),name:'PM Overnight',email:'overnight'+pm.collectionVariables.get('runId')+'@example.com',department:dept,shift_start:'22:00',shift_end:'06:00',joined_on:'2026-08-01'},",
+                  "  {emp_code:code('ot29'),name:'PM OT 29',email:'ot29'+pm.collectionVariables.get('runId')+'@example.com',department:dept,shift_start:'22:00',shift_end:'06:00',joined_on:'2026-08-01'},",
+                  "  {emp_code:code('ot30'),name:'PM OT 30',email:'ot30'+pm.collectionVariables.get('runId')+'@example.com',department:dept,shift_start:'22:00',shift_end:'06:00',joined_on:'2026-08-01'},",
+                  "  {emp_code:code('halfExact'),name:'PM Half Exact',email:'hexact'+pm.collectionVariables.get('runId')+'@example.com',department:dept,shift_start:'09:30',shift_end:'18:30',joined_on:'2026-08-01'},",
+                  "  {emp_code:code('halfBelow'),name:'PM Half Below',email:'hbelow'+pm.collectionVariables.get('runId')+'@example.com',department:dept,shift_start:'09:30',shift_end:'18:30',joined_on:'2026-08-01'},",
+                  "  {emp_code:code('rank1'),name:'PM Rank One',email:'rank1'+pm.collectionVariables.get('runId')+'@example.com',department:leaderDept,shift_start:'09:30',shift_end:'18:30',joined_on:'2026-08-01'},",
+                  "  {emp_code:code('rank2a'),name:'PM Rank Two A',email:'rank2a'+pm.collectionVariables.get('runId')+'@example.com',department:leaderDept,shift_start:'09:30',shift_end:'18:30',joined_on:'2026-08-01'},",
+                  "  {emp_code:code('rank2b'),name:'PM Rank Two B',email:'rank2b'+pm.collectionVariables.get('runId')+'@example.com',department:leaderDept,shift_start:'09:30',shift_end:'18:30',joined_on:'2026-08-01'},",
+                  "  {emp_code:code('rank4'),name:'PM Rank Four',email:'rank4'+pm.collectionVariables.get('runId')+'@example.com',department:leaderDept,shift_start:'09:30',shift_end:'18:30',joined_on:'2026-08-01'},",
+                  "  {emp_code:code('future'),name:'PM Future Joiner',email:'future'+pm.collectionVariables.get('runId')+'@example.com',department:dept,shift_start:'09:30',shift_end:'18:30',joined_on:'2026-09-01'},",
+                  "  {emp_code:code('raceIn'),name:'PM Race In',email:'racein'+pm.collectionVariables.get('runId')+'@example.com',department:dept,shift_start:'09:30',shift_end:'18:30',joined_on:'2026-08-01'},",
+                  "  {emp_code:code('raceOut'),name:'PM Race Out',email:'raceout'+pm.collectionVariables.get('runId')+'@example.com',department:dept,shift_start:'09:30',shift_end:'18:30',joined_on:'2026-08-01'},",
+                  "  {emp_code:code('racePatch'),name:'PM Race Patch',email:'racepatch'+pm.collectionVariables.get('runId')+'@example.com',department:dept,shift_start:'09:30',shift_end:'18:30',joined_on:'2026-08-01'}",
+                  "];",
+                  "const statuses = [];",
+                  "for (const employee of employees) {",
+                  "  const response = await pm.sendRequest({url:base+'/employees',method:'POST',header:{'Content-Type':'application/json'},body:{mode:'raw',raw:JSON.stringify(employee)}});",
+                  "  statuses.push(response.code);",
+                  "}",
+                  "pm.collectionVariables.set('fixtureStatuses', JSON.stringify(statuses));",
+                  "const leaderRecords = [",
+                  "  {emp_code:code('rank1'),punched_at:Number(pm.collectionVariables.get('ts_rank60'))},",
+                  "  {emp_code:code('rank2a'),punched_at:Number(pm.collectionVariables.get('ts_rank45'))},",
+                  "  {emp_code:code('rank2b'),punched_at:Number(pm.collectionVariables.get('ts_rank45'))},",
+                  "  {emp_code:code('rank4'),punched_at:Number(pm.collectionVariables.get('ts_rank10'))}",
+                  "];",
+                  "const leaderStatuses = [];",
+                  "for (const record of leaderRecords) {",
+                  "  const response = await pm.sendRequest({url:base+'/attendance/punch-in',method:'POST',header:{'Content-Type':'application/json'},body:{mode:'raw',raw:JSON.stringify(record)}});",
+                  "  leaderStatuses.push(response.code);",
+                  "}",
+                  "pm.collectionVariables.set('leaderStatuses', JSON.stringify(leaderStatuses));"
+                ]
+              }
+            },
+            { "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('API and MongoDB are ready', function () { pm.response.to.have.status(200); });", "pm.test('all fixture employees were created', function () { pm.expect(JSON.parse(pm.collectionVariables.get('fixtureStatuses') || '[]')).to.deep.equal(Array(17).fill(201)); });"] } }
+          ],
+          "request": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/health", "host": ["{{baseUrl}}"], "path": ["health"] } }
+        },
+        {
+          "name": "Duplicate employee code returns 409",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('duplicate code conflicts', function () { pm.response.to.have.status(409); });"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"emp_code\":\"{{emp_standard}}\",\"name\":\"Duplicate\",\"email\":\"duplicate@example.com\",\"department\":\"{{dept}}\",\"joined_on\":\"2026-08-01\"}" }, "url": { "raw": "{{baseUrl}}/employees", "host": ["{{baseUrl}}"], "path": ["employees"] } }
+        },
+        {
+          "name": "Invalid employee fields return 422",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('invalid code, email, date, and equal shifts are rejected', function () { pm.response.to.have.status(422); });"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"emp_code\":\"BAD\",\"name\":\"Bad\",\"email\":\"not-an-email\",\"department\":\"QA\",\"shift_start\":\"09:30\",\"shift_end\":\"09:30\",\"joined_on\":\"2026-02-30\"}" }, "url": { "raw": "{{baseUrl}}/employees", "host": ["{{baseUrl}}"], "path": ["employees"] } }
+        }
+      ]
+    },
+    {
+      "name": "02 - Punch-in, time rules, and errors",
+      "item": [
+        {
+          "name": "R1/R2: 09:40:00.900 truncates to grace boundary (0 late)",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["const body = pm.response.json();", "pm.test('created on the IST date with truncated instant', function () { pm.response.to.have.status(201); pm.expect(body.date).to.eql('2026-08-03'); pm.expect(body.punch_in % 1000).to.eql(0); pm.expect(body.punch_in).to.eql(Math.floor(Number(pm.collectionVariables.get('ts_grace')) / 1000) * 1000); });", "pm.test('grace boundary is not late and history starts empty', function () { pm.expect(body.late_minutes).to.eql(0); pm.expect(body.history).to.eql([]); });"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"emp_code\":\"{{emp_standard}}\",\"punched_at\":{{ts_grace}},\"status\":\"PRESENT\"}" }, "url": { "raw": "{{baseUrl}}/attendance/punch-in", "host": ["{{baseUrl}}"], "path": ["attendance", "punch-in"] } }
+        },
+        {
+          "name": "R2: 09:40:01 is 10 late minutes",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["const body = pm.response.json();", "pm.test('strict grace boundary produces 10 late minutes', function () { pm.response.to.have.status(201); pm.expect(body.late_minutes).to.eql(10); pm.expect(body.date).to.eql('2026-08-03'); });"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"emp_code\":\"{{emp_boundary}}\",\"punched_at\":{{ts_late}},\"status\":\"WFH\"}" }, "url": { "raw": "{{baseUrl}}/attendance/punch-in", "host": ["{{baseUrl}}"], "path": ["attendance", "punch-in"] } }
+        },
+        {
+          "name": "Unknown employee punch-in returns 404",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('unknown employee is not a server error', function () { pm.response.to.have.status(404); });"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"emp_code\":\"EMP999999\",\"punched_at\":{{ts_start}}}" }, "url": { "raw": "{{baseUrl}}/attendance/punch-in", "host": ["{{baseUrl}}"], "path": ["attendance", "punch-in"] } }
+        },
+        {
+          "name": "R6: ON_DUTY is accepted as a presence status",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('ON_DUTY punch-in is present and accepted', function () { pm.response.to.have.status(201); pm.expect(pm.response.json().status).to.eql('ON_DUTY'); });"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"emp_code\":\"{{emp_racePatch}}\",\"punched_at\":{{ts_start}},\"status\":\"ON_DUTY\"}" }, "url": { "raw": "{{baseUrl}}/attendance/punch-in", "host": ["{{baseUrl}}"], "path": ["attendance", "punch-in"] } }
+        },
+        {
+          "name": "Seconds-looking timestamp returns 422",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('epoch seconds are rejected', function () { pm.response.to.have.status(422); });"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"emp_code\":\"{{emp_standard}}\",\"punched_at\":1780000000}" }, "url": { "raw": "{{baseUrl}}/attendance/punch-in", "host": ["{{baseUrl}}"], "path": ["attendance", "punch-in"] } }
+        },
+        {
+          "name": "Float timestamp returns 422",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('float milliseconds are rejected', function () { pm.response.to.have.status(422); });"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"emp_code\":\"{{emp_standard}}\",\"punched_at\":1785759000000.0}" }, "url": { "raw": "{{baseUrl}}/attendance/punch-in", "host": ["{{baseUrl}}"], "path": ["attendance", "punch-in"] } }
+        },
+        {
+          "name": "Duplicate punch-in for same employee/date returns 409",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('daily natural key conflicts', function () { pm.response.to.have.status(409); });"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"emp_code\":\"{{emp_standard}}\",\"punched_at\":{{ts_grace}}}" }, "url": { "raw": "{{baseUrl}}/attendance/punch-in", "host": ["{{baseUrl}}"], "path": ["attendance", "punch-in"] } }
+        },
+        {
+          "name": "R1 overnight punch-in before shift_end belongs to prior shift date",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["const body = pm.response.json();", "pm.test('early-morning overnight punch maps to shift start date', function () { pm.response.to.have.status(201); pm.expect(body.date).to.eql('2026-08-03'); pm.expect(body.punch_in).to.eql(Number(pm.collectionVariables.get('ts_overnightIn'))); });"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"emp_code\":\"{{emp_overnight}}\",\"punched_at\":{{ts_overnightIn}}}" }, "url": { "raw": "{{baseUrl}}/attendance/punch-in", "host": ["{{baseUrl}}"], "path": ["attendance", "punch-in"] } }
+        }
+      ]
+    },
+    {
+      "name": "03 - Punch-out, rounding, and regularization",
+      "item": [
+        {
+          "name": "Punch-out at/before punch-in returns 422 and leaves record open",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('non-increasing punch-out is rejected', function () { pm.response.to.have.status(422); });"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"emp_code\":\"{{emp_standard}}\",\"punched_at\":{{ts_grace}}}" }, "url": { "raw": "{{baseUrl}}/attendance/punch-out", "host": ["{{baseUrl}}"], "path": ["attendance", "punch-out"] } }
+        },
+        {
+          "name": "R3-R5 punch-out computes hours and zero overtime",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["const body = pm.response.json();", "pm.test('rounded hours and derived values', function () { pm.response.to.have.status(200); pm.expect(body.work_hours).to.eql(8.83); pm.expect(body.overtime_minutes).to.eql(0); pm.expect(body.half_day).to.eql(false); });"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"emp_code\":\"{{emp_standard}}\",\"punched_at\":{{ts_end}}}" }, "url": { "raw": "{{baseUrl}}/attendance/punch-out", "host": ["{{baseUrl}}"], "path": ["attendance", "punch-out"] } }
+        },
+        {
+          "name": "Second punch-out returns 409",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('closed record conflicts', function () { pm.response.to.have.status(409); });"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"emp_code\":\"{{emp_standard}}\",\"punched_at\":{{ts_end}}}" }, "url": { "raw": "{{baseUrl}}/attendance/punch-out", "host": ["{{baseUrl}}"], "path": ["attendance", "punch-out"] } }
+        },
+        {
+          "name": "Overnight punch-out computes next-day end and 40 OT minutes",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["const body = pm.response.json();", "pm.test('overnight interval is calculated against next-day shift end', function () { pm.response.to.have.status(200); pm.expect(body.date).to.eql('2026-08-03'); pm.expect(body.overtime_minutes).to.eql(40); pm.expect(body.work_hours).to.eql(0.68); });"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"emp_code\":\"{{emp_overnight}}\",\"punched_at\":{{ts_overnightOut}}}" }, "url": { "raw": "{{baseUrl}}/attendance/punch-out", "host": ["{{baseUrl}}"], "path": ["attendance", "punch-out"] } }
+        },
+        {
+          "name": "R3: 29m59s after shift end is below OT threshold",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["const body = pm.response.json();", "pm.test('overtime is zero below 30 whole minutes', function () { pm.response.to.have.status(200); pm.expect(body.overtime_minutes).to.eql(0); });"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"emp_code\":\"{{emp_ot29}}\",\"punched_at\":{{ts_ot29In}}}" }, "url": { "raw": "{{baseUrl}}/attendance/punch-in", "host": ["{{baseUrl}}"], "path": ["attendance", "punch-in"] } }
+        },
+        {
+          "name": "Punch out OT29 fixture",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('OT29 fixture closes', function () { pm.response.to.have.status(200); pm.expect(pm.response.json().overtime_minutes).to.eql(0); });"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"emp_code\":\"{{emp_ot29}}\",\"punched_at\":{{ts_ot29Out}}}" }, "url": { "raw": "{{baseUrl}}/attendance/punch-out", "host": ["{{baseUrl}}"], "path": ["attendance", "punch-out"] } }
+        },
+        {
+          "name": "R3: exactly 30 minutes overtime counts",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('30-minute threshold is inclusive', function () { pm.response.to.have.status(200); pm.expect(pm.response.json().overtime_minutes).to.eql(30); });"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"emp_code\":\"{{emp_ot30}}\",\"punched_at\":{{ts_ot30In}}}" }, "url": { "raw": "{{baseUrl}}/attendance/punch-in", "host": ["{{baseUrl}}"], "path": ["attendance", "punch-in"] } }
+        },
+        {
+          "name": "Punch out OT30 fixture",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('OT30 fixture closes', function () { pm.response.to.have.status(200); pm.expect(pm.response.json().overtime_minutes).to.eql(30); });"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"emp_code\":\"{{emp_ot30}}\",\"punched_at\":{{ts_ot30Out}}}" }, "url": { "raw": "{{baseUrl}}/attendance/punch-out", "host": ["{{baseUrl}}"], "path": ["attendance", "punch-out"] } }
+        },
+        {
+          "name": "R4-R5: rounded 4.495 hours becomes 4.50, not half-day",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('half-up boundary rounds to 4.50', function () { pm.response.to.have.status(200); pm.expect(pm.response.json().work_hours).to.eql(4.5); pm.expect(pm.response.json().half_day).to.eql(false); });"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"emp_code\":\"{{emp_halfExact}}\",\"punched_at\":{{ts_start}}}" }, "url": { "raw": "{{baseUrl}}/attendance/punch-in", "host": ["{{baseUrl}}"], "path": ["attendance", "punch-in"] } }
+        },
+        {
+          "name": "Punch out exact half-day rounding fixture",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('rounded 4.50 is full day', function () { pm.response.to.have.status(200); pm.expect(pm.response.json().work_hours).to.eql(4.5); pm.expect(pm.response.json().half_day).to.eql(false); });"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"emp_code\":\"{{emp_halfExact}}\",\"punched_at\":{{ts_halfExactOut}}}" }, "url": { "raw": "{{baseUrl}}/attendance/punch-out", "host": ["{{baseUrl}}"], "path": ["attendance", "punch-out"] } }
+        },
+        {
+          "name": "R5: below 4.50 rounded hours is half-day",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('4.49 hours is half-day', function () { pm.response.to.have.status(200); pm.expect(pm.response.json().work_hours).to.eql(4.49); pm.expect(pm.response.json().half_day).to.eql(true); });"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"emp_code\":\"{{emp_halfBelow}}\",\"punched_at\":{{ts_start}}}" }, "url": { "raw": "{{baseUrl}}/attendance/punch-in", "host": ["{{baseUrl}}"], "path": ["attendance", "punch-in"] } }
+        },
+        {
+          "name": "Punch out below half-day threshold fixture",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('4.49 hours remains half-day', function () { pm.response.to.have.status(200); pm.expect(pm.response.json().work_hours).to.eql(4.49); pm.expect(pm.response.json().half_day).to.eql(true); });"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"emp_code\":\"{{emp_halfBelow}}\",\"punched_at\":{{ts_halfBelowOut}}}" }, "url": { "raw": "{{baseUrl}}/attendance/punch-out", "host": ["{{baseUrl}}"], "path": ["attendance", "punch-out"] } }
+        },
+        {
+          "name": "Punch-out more than 24 hours after punch-in returns 422",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('over-24-hour interval is rejected', function () { pm.response.to.have.status(422); });"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"emp_code\":\"{{emp_boundary}}\",\"punched_at\":{{ts_over24}}}" }, "url": { "raw": "{{baseUrl}}/attendance/punch-out", "host": ["{{baseUrl}}"], "path": ["attendance", "punch-out"] } }
+        }
+      ]
+    },
+    {
+      "name": "04 - Weekend, analytics, pagination, history",
+      "item": [
+        {
+          "name": "Weekend punch-in is retained",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('weekend record created and late', function () { pm.response.to.have.status(201); pm.expect(pm.response.json().date).to.eql('2026-08-15'); pm.expect(pm.response.json().late_minutes).to.eql(60); });"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"emp_code\":\"{{emp_standard}}\",\"punched_at\":{{ts_weekendIn}}}" }, "url": { "raw": "{{baseUrl}}/attendance/punch-in", "host": ["{{baseUrl}}"], "path": ["attendance", "punch-in"] } }
+        },
+        {
+          "name": "Weekend punch-out fixture",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('weekend record closed', function () { pm.response.to.have.status(200); });"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"emp_code\":\"{{emp_standard}}\",\"punched_at\":{{ts_weekendOut}}}" }, "url": { "raw": "{{baseUrl}}/attendance/punch-out", "host": ["{{baseUrl}}"], "path": ["attendance", "punch-out"] } }
+        },
+        {
+          "name": "Mid-month joiner punch-in",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('joiner record created on joined date range', function () { pm.response.to.have.status(201); pm.expect(pm.response.json().date).to.eql('2026-08-17'); });"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"emp_code\":\"{{emp_joiner}}\",\"punched_at\":{{ts_joinerIn}}}" }, "url": { "raw": "{{baseUrl}}/attendance/punch-in", "host": ["{{baseUrl}}"], "path": ["attendance", "punch-in"] } }
+        },
+        {
+          "name": "Mid-month joiner punch-out",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('joiner record closed', function () { pm.response.to.have.status(200); });"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"emp_code\":\"{{emp_joiner}}\",\"punched_at\":{{ts_joinerOut}}}" }, "url": { "raw": "{{baseUrl}}/attendance/punch-out", "host": ["{{baseUrl}}"], "path": ["attendance", "punch-out"] } }
+        },
+        {
+          "name": "Regularize boundary record and append history",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["const body = pm.response.json();", "pm.test('correction recomputes and appends audit entry', function () { pm.response.to.have.status(200); pm.expect(body.late_minutes).to.eql(0); pm.expect(body.history).to.have.length(1); pm.expect(body.history[0].by).to.eql('Postman QA'); pm.expect(body.history[0].changes).to.have.property('punch_in'); });"] } }],
+          "request": { "method": "PATCH", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"punch_in\":{{ts_start}},\"reason\":\"Correct late arrival\",\"regularized_by\":\"Postman QA\"}" }, "url": { "raw": "{{baseUrl}}/attendance/{{emp_boundary}}/2026-08-03", "host": ["{{baseUrl}}"], "path": ["attendance", "{{emp_boundary}}", "2026-08-03"] } }
+        },
+        {
+          "name": "PATCH with no actual change returns 422",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('no-op regularization is rejected', function () { pm.response.to.have.status(422); });"] } }],
+          "request": { "method": "PATCH", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"reason\":\"No change requested\",\"regularized_by\":\"Postman QA\"}" }, "url": { "raw": "{{baseUrl}}/attendance/{{emp_boundary}}/2026-08-03", "host": ["{{baseUrl}}"], "path": ["attendance", "{{emp_boundary}}", "2026-08-03"] } }
+        },
+        {
+          "name": "PATCH ABSENT with punch time returns 422",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('absent cannot carry punch times', function () { pm.response.to.have.status(422); });"] } }],
+          "request": { "method": "PATCH", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"status\":\"ABSENT\",\"punch_in\":{{ts_start}},\"reason\":\"Invalid absent\",\"regularized_by\":\"Postman QA\"}" }, "url": { "raw": "{{baseUrl}}/attendance/{{emp_standard}}/2026-08-03", "host": ["{{baseUrl}}"], "path": ["attendance", "{{emp_standard}}", "2026-08-03"] } }
+        },
+        {
+          "name": "PATCH record to LEAVE clears punches and records changes",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["const body = pm.response.json();", "pm.test('leave clears times and appends history', function () { pm.response.to.have.status(200); pm.expect(body.status).to.eql('LEAVE'); pm.expect(body.punch_in).to.eql(null); pm.expect(body.punch_out).to.eql(null); pm.expect(body.history.length).to.be.greaterThan(0); });"] } }],
+          "request": { "method": "PATCH", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"status\":\"LEAVE\",\"reason\":\"Approved leave\",\"regularized_by\":\"Postman QA\"}" }, "url": { "raw": "{{baseUrl}}/attendance/{{emp_ot30}}/2026-08-06", "host": ["{{baseUrl}}"], "path": ["attendance", "{{emp_ot30}}", "2026-08-06"] } }
+        },
+        {
+          "name": "Employee list filter and pagination",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["const body = pm.response.json();", "pm.test('filtered total and 1-based page fields', function () { pm.response.to.have.status(200); pm.expect(body.total).to.eql(13); pm.expect(body.page).to.eql(1); pm.expect(body.page_size).to.eql(2); pm.expect(body.items).to.have.length(2); });", "pm.test('employee page is sorted and hides Mongo id', function () { pm.expect(body.items[0].emp_code < body.items[1].emp_code).to.eql(true); pm.expect(body.items[0]).not.to.have.property('_id'); });"] } }],
+          "request": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/employees?department={{dept}}&page=1&page_size=2", "host": ["{{baseUrl}}"], "path": ["employees"], "query": [{ "key": "department", "value": "{{dept}}" }, { "key": "page", "value": "1" }, { "key": "page_size", "value": "2" }] } }
+        },
+        {
+          "name": "Attendance filters, sort, and pagination",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["const body = pm.response.json();", "pm.test('filter count precedes pagination', function () { pm.response.to.have.status(200); pm.expect(body.total).to.be.greaterThan(0); pm.expect(body.page).to.eql(1); pm.expect(body.page_size).to.eql(2); pm.expect(body.items).to.have.length(2); });", "pm.test('record response omits Mongo id and provides history', function () { pm.expect(body.items[0]).not.to.have.property('_id'); pm.expect(body.items[0]).to.have.property('history'); });"] } }],
+          "request": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/attendance?emp_code={{emp_standard}}&date_from=2026-08-01&date_to=2026-08-31&page=1&page_size=2", "host": ["{{baseUrl}}"], "path": ["attendance"], "query": [{ "key": "emp_code", "value": "{{emp_standard}}" }, { "key": "date_from", "value": "2026-08-01" }, { "key": "date_to", "value": "2026-08-31" }, { "key": "page", "value": "1" }, { "key": "page_size", "value": "2" }] } }
+        },
+        {
+          "name": "Invalid reversed attendance date range returns 422",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('reversed range rejected', function () { pm.response.to.have.status(422); });"] } }],
+          "request": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/attendance?date_from=2026-08-20&date_to=2026-08-01", "host": ["{{baseUrl}}"], "path": ["attendance"], "query": [{ "key": "date_from", "value": "2026-08-20" }, { "key": "date_to", "value": "2026-08-01" }] } }
+        },
+        {
+          "name": "Employee monthly summary: weekend affects late, not present days",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["const body = pm.response.json();", "pm.test('monthly aggregation uses weekday present days and all-day lateness', function () { pm.response.to.have.status(200); pm.expect(body.working_days).to.eql(21); pm.expect(body.present_days).to.eql(1); pm.expect(body.late_count).to.eql(1); pm.expect(body.total_late_minutes).to.eql(60); });"] } }],
+          "request": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/analytics/employees/{{emp_standard}}/monthly?month=2026-08", "host": ["{{baseUrl}}"], "path": ["analytics", "employees", "{{emp_standard}}", "monthly"], "query": [{ "key": "month", "value": "2026-08" }] } }
+        },
+        {
+          "name": "Department summary: zero-log headcount, joiner, future joiner",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["const item = pm.response.json().items.find(row => row.department === pm.collectionVariables.get('dept'));", "pm.test('employees with no logs count; future joiner does not', function () { pm.response.to.have.status(200); pm.expect(item).to.exist; pm.expect(item.headcount).to.eql(12); });", "pm.test('summary returns expected fields', function () { pm.expect(item).to.have.property('present_days'); pm.expect(item).to.have.property('avg_work_hours'); pm.expect(item).to.have.property('late_count'); });"] } }],
+          "request": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/analytics/departments/summary?month=2026-08&department={{dept}}", "host": ["{{baseUrl}}"], "path": ["analytics", "departments", "summary"], "query": [{ "key": "month", "value": "2026-08" }, { "key": "department", "value": "{{dept}}" }] } }
+        },
+        {
+          "name": "Leaderboard tie at cutoff includes all tied rows with competition rank",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["const items = pm.response.json().items;", "pm.test('limit=2 includes both rank-2 ties', function () { pm.response.to.have.status(200); pm.expect(items.map(item => item.rank)).to.eql([1, 2, 2]); pm.expect(items).to.have.length(3); });", "pm.test('tie rows are stable by employee code', function () { pm.expect(items[1].emp_code < items[2].emp_code).to.eql(true); });"] } }],
+          "request": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/analytics/leaderboard/late?month=2026-08&limit=2&department={{leaderDept}}", "host": ["{{baseUrl}}"], "path": ["analytics", "leaderboard", "late"], "query": [{ "key": "month", "value": "2026-08" }, { "key": "limit", "value": "2" }, { "key": "department", "value": "{{leaderDept}}" }] } }
+        },
+        {
+          "name": "Department trend: 7 rows, weekend, gap filling, joiner headcount",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["const items = pm.response.json().items;", "pm.test('one ordered row per requested date including weekend gaps', function () { pm.response.to.have.status(200); pm.expect(items).to.have.length(7); pm.expect(items.map(item => item.date)).to.eql(['2026-08-14','2026-08-15','2026-08-16','2026-08-17','2026-08-18','2026-08-19','2026-08-20']); });", "pm.test('weekend has a presence count but null rate; joined employee enters headcount', function () { pm.expect(items[1].is_working_day).to.eql(false); pm.expect(items[1].present_count).to.eql(1); pm.expect(items[1].attendance_rate).to.eql(null); pm.expect(items[0].headcount).to.eql(11); pm.expect(items[2].headcount).to.eql(12); pm.expect(items[3].headcount).to.eql(12); pm.expect(items[3].present_count).to.eql(1); });", "pm.test('missing weekday is still present with zero rate and rolling average', function () { pm.expect(items[4].attendance_rate).to.eql(0); pm.expect(items[4].moving_avg_7d).to.be.a('number'); });"] } }],
+          "request": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/analytics/departments/{{dept}}/trend?from=2026-08-14&to=2026-08-20", "host": ["{{baseUrl}}"], "path": ["analytics", "departments", "{{dept}}", "trend"], "query": [{ "key": "from", "value": "2026-08-14" }, { "key": "to", "value": "2026-08-20" }] } }
+        },
+        {
+          "name": "Trend over 92 days returns 422",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('range limit is enforced', function () { pm.response.to.have.status(422); });"] } }],
+          "request": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/analytics/departments/{{dept}}/trend?from=2026-01-01&to=2026-04-03", "host": ["{{baseUrl}}"], "path": ["analytics", "departments", "{{dept}}", "trend"], "query": [{ "key": "from", "value": "2026-01-01" }, { "key": "to", "value": "2026-04-03" }] } }
+        }
+      ]
+    },
+    {
+      "name": "05 - Explain plans and missing resources",
+      "item": [
+        {
+          "name": "Unknown monthly employee returns 404",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('unknown employee returns 404', function () { pm.response.to.have.status(404); });"] } }],
+          "request": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/analytics/employees/EMP999999/monthly?month=2026-08", "host": ["{{baseUrl}}"], "path": ["analytics", "employees", "EMP999999", "monthly"], "query": [{ "key": "month", "value": "2026-08" }] } }
+        },
+        {
+          "name": "Year-zero month must return 422, not 500",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('invalid calendar year is a validation response', function () { pm.response.to.have.status(422); });"] } }],
+          "request": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/analytics/departments/summary?month=0000-01", "host": ["{{baseUrl}}"], "path": ["analytics", "departments", "summary"], "query": [{ "key": "month", "value": "0000-01" }] } }
+        },
+        {
+          "name": "Explain attendance list uses index",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["const text = JSON.stringify(pm.response.json().explain);", "pm.test('executionStats plan includes IXSCAN and no COLLSCAN', function () { pm.response.to.have.status(200); pm.expect(text).to.include('IXSCAN'); pm.expect(text).not.to.include('COLLSCAN'); });"] } }],
+          "request": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/admin/explain/attendance_list?emp_code={{emp_standard}}&date_from=2026-08-01&date_to=2026-08-31&page=1&page_size=20", "host": ["{{baseUrl}}"], "path": ["admin", "explain", "attendance_list"], "query": [{ "key": "emp_code", "value": "{{emp_standard}}" }, { "key": "date_from", "value": "2026-08-01" }, { "key": "date_to", "value": "2026-08-31" }, { "key": "page", "value": "1" }, { "key": "page_size", "value": "20" }] } }
+        },
+        {
+          "name": "Explain employee monthly uses index",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["const text = JSON.stringify(pm.response.json().explain);", "pm.test('executionStats plan includes IXSCAN and no COLLSCAN', function () { pm.response.to.have.status(200); pm.expect(text).to.include('IXSCAN'); pm.expect(text).not.to.include('COLLSCAN'); });"] } }],
+          "request": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/admin/explain/employee_monthly?emp_code={{emp_standard}}&month=2026-08", "host": ["{{baseUrl}}"], "path": ["admin", "explain", "employee_monthly"], "query": [{ "key": "emp_code", "value": "{{emp_standard}}" }, { "key": "month", "value": "2026-08" }] } }
+        },
+        {
+          "name": "Explain department summary uses index",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["const text = JSON.stringify(pm.response.json().explain);", "pm.test('executionStats plan includes IXSCAN and no COLLSCAN', function () { pm.response.to.have.status(200); pm.expect(text).to.include('IXSCAN'); pm.expect(text).not.to.include('COLLSCAN'); });"] } }],
+          "request": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/admin/explain/department_summary?month=2026-08&department={{dept}}", "host": ["{{baseUrl}}"], "path": ["admin", "explain", "department_summary"], "query": [{ "key": "month", "value": "2026-08" }, { "key": "department", "value": "{{dept}}" }] } }
+        },
+        {
+          "name": "Explain leaderboard uses index",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["const text = JSON.stringify(pm.response.json().explain);", "pm.test('executionStats plan includes IXSCAN and no COLLSCAN', function () { pm.response.to.have.status(200); pm.expect(text).to.include('IXSCAN'); pm.expect(text).not.to.include('COLLSCAN'); });"] } }],
+          "request": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/admin/explain/late_leaderboard?month=2026-08&limit=2&department={{leaderDept}}", "host": ["{{baseUrl}}"], "path": ["admin", "explain", "late_leaderboard"], "query": [{ "key": "month", "value": "2026-08" }, { "key": "limit", "value": "2" }, { "key": "department", "value": "{{leaderDept}}" }] } }
+        },
+        {
+          "name": "Explain department trend uses index",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["const text = JSON.stringify(pm.response.json().explain);", "pm.test('executionStats plan includes IXSCAN and no COLLSCAN', function () { pm.response.to.have.status(200); pm.expect(text).to.include('IXSCAN'); pm.expect(text).not.to.include('COLLSCAN'); });"] } }],
+          "request": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/admin/explain/department_trend?department={{dept}}&from=2026-08-14&to=2026-08-20", "host": ["{{baseUrl}}"], "path": ["admin", "explain", "department_trend"], "query": [{ "key": "department", "value": "{{dept}}" }, { "key": "from", "value": "2026-08-14" }, { "key": "to", "value": "2026-08-20" }] } }
+        }
+      ]
+    },
+    {
+      "name": "06 - Concurrency checks (parallel requests)",
+      "item": [
+        {
+          "name": "Race two identical punch-ins (one 201, one 409)",
+          "event": [
+            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": ["const base = pm.collectionVariables.get('baseUrl');", "const body = {emp_code:pm.collectionVariables.get('emp_raceIn'),punched_at:Number(pm.collectionVariables.get('ts_raceIn')),status:'PRESENT'};", "const options = {url:base+'/attendance/punch-in',method:'POST',header:{'Content-Type':'application/json'},body:{mode:'raw',raw:JSON.stringify(body)}};", "const responses = await Promise.all([pm.sendRequest(options), pm.sendRequest(options)]);", "pm.collectionVariables.set('raceInStatuses', JSON.stringify(responses.map(response => response.code).sort((a,b) => a-b)));" ] } },
+            { "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('both requests ran in parallel against readiness endpoint', function () { pm.response.to.have.status(200); });", "pm.test('unique employee/date index permits exactly one creation', function () { pm.expect(JSON.parse(pm.collectionVariables.get('raceInStatuses') || '[]')).to.eql([201,409]); });"] } }
+          ],
+          "request": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/health", "host": ["{{baseUrl}}"], "path": ["health"] } }
+        },
+        {
+          "name": "Create punch-out race record",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('open race record created', function () { pm.response.to.have.status(201); });"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"emp_code\":\"{{emp_raceOut}}\",\"punched_at\":{{ts_raceIn}}}" }, "url": { "raw": "{{baseUrl}}/attendance/punch-in", "host": ["{{baseUrl}}"], "path": ["attendance", "punch-in"] } }
+        },
+        {
+          "name": "Race two punch-outs (one 200, one 409)",
+          "event": [
+            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": ["const base = pm.collectionVariables.get('baseUrl');", "const body = {emp_code:pm.collectionVariables.get('emp_raceOut'),punched_at:Number(pm.collectionVariables.get('ts_raceOut'))};", "const options = {url:base+'/attendance/punch-out',method:'POST',header:{'Content-Type':'application/json'},body:{mode:'raw',raw:JSON.stringify(body)}};", "const responses = await Promise.all([pm.sendRequest(options), pm.sendRequest(options)]);", "pm.collectionVariables.set('raceOutStatuses', JSON.stringify(responses.map(response => response.code).sort((a,b) => a-b)));" ] } },
+            { "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('race ran against readiness endpoint', function () { pm.response.to.have.status(200); });", "pm.test('atomic close permits exactly one success', function () { pm.expect(JSON.parse(pm.collectionVariables.get('raceOutStatuses') || '[]')).to.eql([200,409]); });"] } }
+          ],
+          "request": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/health", "host": ["{{baseUrl}}"], "path": ["health"] } }
+        },
+        {
+          "name": "Create regularization race record",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('regularization race record created', function () { pm.response.to.have.status(201); });"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"emp_code\":\"{{emp_racePatch}}\",\"punched_at\":{{ts_racePatchIn}}}" }, "url": { "raw": "{{baseUrl}}/attendance/punch-in", "host": ["{{baseUrl}}"], "path": ["attendance", "punch-in"] } }
+        },
+        {
+          "name": "Race two regularizations (one 200, one 409)",
+          "event": [
+            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": ["const base = pm.collectionVariables.get('baseUrl');", "const emp = pm.collectionVariables.get('emp_racePatch');", "const url = base+'/attendance/'+emp+'/2026-08-21';", "const make = status => pm.sendRequest({url,method:'PATCH',header:{'Content-Type':'application/json'},body:{mode:'raw',raw:JSON.stringify({status,reason:'Parallel correction',regularized_by:'Postman QA'})}});", "const responses = await Promise.all([make('WFH'), make('ON_DUTY')]);", "pm.collectionVariables.set('racePatchStatuses', JSON.stringify(responses.map(response => response.code).sort((a,b) => a-b)));" ] } },
+            { "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('race ran against readiness endpoint', function () { pm.response.to.have.status(200); });", "pm.test('optimistic history guard prevents lost correction', function () { pm.expect(JSON.parse(pm.collectionVariables.get('racePatchStatuses') || '[]')).to.eql([200,409]); });"] } }
+          ],
+          "request": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/health", "host": ["{{baseUrl}}"], "path": ["health"] } }
+        }
+      ]
+    }
+  ]
+}
