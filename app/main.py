@@ -200,6 +200,7 @@ def working_days_in_month(month: str, joined_on: str) -> int:
 
 def month_bounds(month: str):
     """Return (first_date_str, last_date_str) for a YYYY-MM month string."""
+    validate_month_str(month, "month")
     y, m = map(int, month.split("-"))
     first = date(y, m, 1)
     last = date(y, m, monthrange(y, m)[1])
@@ -233,6 +234,11 @@ def validate_date_str(value: str, param_name: str) -> str:
 def validate_month_str(value: str, param_name: str = "month") -> str:
     if not MONTH_RE.match(value):
         raise unprocessable(f"Invalid month format: {value}", ["query", param_name])
+    try:
+        y, m = map(int, value.split("-"))
+        date(y, m, 1)
+    except ValueError:
+        raise unprocessable(f"Invalid month: {value}", ["query", param_name])
     return value
 
 
@@ -1039,6 +1045,7 @@ def employee_monthly(
     emp_code: str,
     month: str = Query(..., pattern=r"^\d{4}-(0[1-9]|1[0-2])$"),
 ):
+    validate_month_str(month, "month")
     emp = db.employees.find_one({"emp_code": emp_code}, {"_id": 0})
     if not emp:
         raise HTTPException(404, detail="Employee not found")
@@ -1090,6 +1097,7 @@ def department_summary(
     month: str = Query(..., pattern=r"^\d{4}-(0[1-9]|1[0-2])$"),
     department: Optional[str] = None,
 ):
+    validate_month_str(month, "month")
     first, last = month_bounds(month)
     pipeline = build_summary_pipeline(first, last, department)
 
@@ -1132,6 +1140,7 @@ def late_leaderboard(
     limit: int = Query(10, ge=1, le=50),
     department: Optional[str] = None,
 ):
+    validate_month_str(month, "month")
     first, last = month_bounds(month)
     pipeline = build_leaderboard_pipeline(first, last, limit, department)
     result = list(db.attendance_logs.aggregate(pipeline, hint="date_emp"))
@@ -1233,6 +1242,7 @@ def explain_endpoint(
             raise unprocessable("emp_code is required", ["query", "emp_code"])
         if not month:
             raise unprocessable("month is required", ["query", "month"])
+        validate_month_str(month, "month")
         first, last = month_bounds(month)
         pipeline = build_monthly_pipeline(emp_code, first, last)
         explain_cmd = {
@@ -1249,6 +1259,7 @@ def explain_endpoint(
     elif endpoint == "department_summary":
         if not month:
             raise unprocessable("month is required", ["query", "month"])
+        validate_month_str(month, "month")
         first, last = month_bounds(month)
         pipeline = build_summary_pipeline(first, last, department)
         hint = "dept_emp" if department else "joined_on"
@@ -1266,6 +1277,7 @@ def explain_endpoint(
     elif endpoint == "late_leaderboard":
         if not month:
             raise unprocessable("month is required", ["query", "month"])
+        validate_month_str(month, "month")
         first, last = month_bounds(month)
         pipeline = build_leaderboard_pipeline(first, last, limit, department)
         explain_cmd = {
